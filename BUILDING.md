@@ -35,6 +35,22 @@ The other tool necessary will be `make` which can be installe via [Chocolatey](h
 choco install make
 ```
 
+### Android
+You will need:
+- Android NDK (r26+ recommended)
+- CMake and Ninja
+- SDL2 built for Android and discoverable by CMake (`SDL2_DIR`)
+
+Then configure with the NDK toolchain file, for example:
+```bash
+cmake -S . -B build-android -G Ninja \
+  -DCMAKE_SYSTEM_NAME=Android \
+  -DANDROID_ABI=arm64-v8a \
+  -DANDROID_PLATFORM=android-26 \
+  -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake
+cmake --build build-android --target BanjoRecompiled -j$(nproc)
+```
+
 ## 3. Decompressing the target ROM
 You will need to decompress the NTSC-U 1.0 N64 Banjo-Kazooie ROM (sha1: d6133ace5afaa0882cf214cf88daba39e266c078) before running the recompiler.
 

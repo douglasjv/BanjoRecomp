@@ -298,6 +298,16 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     target_link_libraries(BanjoRecompiled PRIVATE "-latomic -static-libstdc++" ${CMAKE_DL_LIBS} Threads::Threads)
 endif()
 
+if (CMAKE_SYSTEM_NAME MATCHES "Android")
+    find_package(SDL2 REQUIRED)
+
+    add_compile_definitions("PLUME_SDL_VULKAN_ENABLED")
+    add_compile_definitions("RT64_SDL_WINDOW_VULKAN")
+
+    target_include_directories(BanjoRecompiled PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_link_libraries(BanjoRecompiled PRIVATE SDL2::SDL2 ${CMAKE_DL_LIBS})
+endif()
+
 # TODO fix the rt64 CMake script so that this doesn't need to be duplicated here
 # For DXC
 set (DXC_COMMON_OPTS "-I${PROJECT_SOURCE_DIR}/src")
