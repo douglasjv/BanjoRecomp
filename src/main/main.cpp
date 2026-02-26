@@ -533,7 +533,7 @@ void release_preload(PreloadContext& context) {
     context = {};
 }
 
-#elif defined(__linux__) || defined(__ANDROID__) || defined(APPLE)
+#elif defined(__linux__) || defined(__ANDROID__) || defined(__APPLE__)
 
 struct PreloadContext {
 

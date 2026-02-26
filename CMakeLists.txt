@@ -266,8 +266,8 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_package(SDL2 REQUIRED)
     find_package(X11 REQUIRED)
 
-    add_compile_definitions("PLUME_SDL_VULKAN_ENABLED")
-    add_compile_definitions("RT64_SDL_WINDOW_VULKAN")
+    add_compile_definitions(PLUME_SDL_VULKAN_ENABLED)
+    add_compile_definitions(RT64_SDL_WINDOW_VULKAN)
 
     message(STATUS "SDL2_FOUND = ${SDL2_FOUND}")
     message(STATUS "SDL2_INCLUDE_DIRS = ${SDL2_INCLUDE_DIRS}")
@@ -301,8 +301,8 @@ endif()
 if (CMAKE_SYSTEM_NAME MATCHES "Android")
     find_package(SDL2 REQUIRED)
 
-    add_compile_definitions("PLUME_SDL_VULKAN_ENABLED")
-    add_compile_definitions("RT64_SDL_WINDOW_VULKAN")
+    add_compile_definitions(PLUME_SDL_VULKAN_ENABLED)
+    add_compile_definitions(RT64_SDL_WINDOW_VULKAN)
 
     target_include_directories(BanjoRecompiled PRIVATE ${SDL2_INCLUDE_DIRS})
     target_link_libraries(BanjoRecompiled PRIVATE SDL2::SDL2 ${CMAKE_DL_LIBS})
