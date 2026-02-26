@@ -13,8 +13,11 @@
 #include "ultramodern/ultra64.h"
 #include "ultramodern/ultramodern.hpp"
 #include "ultramodern/config.hpp"
+#if !defined(__ANDROID__)
 #define SDL_MAIN_HANDLED
-#ifdef _WIN32
+#endif
+
+#if defined(_WIN32) || defined(__ANDROID__)
 #include "SDL.h"
 #else
 #include "SDL2/SDL.h"
@@ -172,11 +175,11 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
         exit_error("Failed to create window: %s\n", SDL_GetError());
     }
 
+#if defined(_WIN32)
     SDL_SysWMinfo wmInfo;
     SDL_VERSION(&wmInfo.version);
     SDL_GetWindowWMInfo(window, &wmInfo);
 
-#if defined(_WIN32)
     // There's a 50/50 chance to choose the icon where the smallest variant is either Banjo or Kazooie alone.
     bool choose_kazooie_icon = (rand() % 2 == 0);
     HICON new_icon = LoadIcon(GetModuleHandle(NULL), choose_kazooie_icon ? MAKEINTRESOURCE(APP_ICON_K) : MAKEINTRESOURCE(APP_ICON_B));
@@ -190,6 +193,10 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
 #elif defined(__linux__) || defined(__ANDROID__)
     return ultramodern::renderer::WindowHandle{ window };
 #elif defined(__APPLE__)
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    SDL_GetWindowWMInfo(window, &wmInfo);
+
     SDL_MetalView view = SDL_Metal_CreateView(window);
     return ultramodern::renderer::WindowHandle{ wmInfo.info.cocoa.window,  SDL_Metal_GetLayer(view) };
 #else
