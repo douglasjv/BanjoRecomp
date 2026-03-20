@@ -1,4 +1,6 @@
 #include "banjo_launcher.h"
+#include "base/ui_game_option.h"
+#include <algorithm>
 #include <atomic>
 
 struct KeyframeRot {
@@ -53,6 +55,71 @@ struct LauncherContext {
     bool animation_skipped = false;
     std::atomic<bool> skip_animation_next_update = false;
 } launcher_context;
+
+struct LauncherLayoutMetrics {
+    float menu_container_width = 1440.0f;
+    float menu_top_offset = banjo::launcher_options_top_offset;
+    float options_right_start = banjo::launcher_options_right_position_start;
+    float options_right_end = banjo::launcher_options_right_position_end;
+    float option_padding = 24.0f;
+    float option_font_size = 56.0f;
+    float option_letter_spacing = 4.0f;
+    float options_width_percent = 30.0f;
+    float options_gap = 8.0f;
+};
+
+static LauncherLayoutMetrics get_launcher_layout_metrics(recompui::LauncherMenu *menu) {
+    LauncherLayoutMetrics metrics{};
+    recompui::Element *background_container = menu->get_background_container();
+    float dp_to_pixel_ratio = std::max(background_container->get_dp_to_pixel_ratio(), 1.0f);
+    float width_dp = background_container->get_client_width() / dp_to_pixel_ratio;
+    float height_dp = background_container->get_client_height() / dp_to_pixel_ratio;
+
+    float scale = std::clamp(std::min(width_dp / 1440.0f, height_dp / 900.0f), 0.72f, 1.0f);
+    bool compact = height_dp < 840.0f || width_dp < 1180.0f;
+
+    metrics.menu_container_width = std::min(1440.0f, std::max(width_dp - (compact ? 28.0f : 56.0f), 0.0f));
+    metrics.menu_top_offset = banjo::launcher_options_top_offset * scale;
+    metrics.options_right_start = (compact ? 32.0f : banjo::launcher_options_right_position_start) * scale;
+    metrics.options_right_end = metrics.options_right_start + (compact ? 14.0f : 24.0f) * scale;
+    metrics.option_padding = std::clamp(24.0f * scale, 14.0f, 24.0f);
+    metrics.option_font_size = std::clamp(56.0f * scale, 36.0f, 56.0f);
+    metrics.option_letter_spacing = std::clamp(4.0f * scale, 2.0f, 4.0f);
+    metrics.options_width_percent = compact ? 40.0f : 30.0f;
+    metrics.options_gap = std::clamp(8.0f * scale, 4.0f, 8.0f);
+    return metrics;
+}
+
+void banjo::apply_launcher_layout(recompui::LauncherMenu *menu) {
+    LauncherLayoutMetrics metrics = get_launcher_layout_metrics(menu);
+    auto *menu_container = menu->get_menu_container();
+    auto *game_options_menu = menu->get_game_options_menu();
+
+    if (game_options_menu == nullptr) {
+        return;
+    }
+
+    menu_container->set_width(metrics.menu_container_width);
+    menu_container->unset_left();
+    menu_container->set_top(metrics.menu_top_offset);
+    menu_container->set_bottom(-metrics.menu_top_offset);
+    menu_container->set_right(50.0f, recompui::Unit::Percent);
+    menu_container->set_translate_2D(50.0f, 0.0f, recompui::Unit::Percent);
+
+    game_options_menu->set_width(metrics.options_width_percent, recompui::Unit::Percent);
+    game_options_menu->set_gap(metrics.options_gap);
+    game_options_menu->unset_left();
+    game_options_menu->set_bottom(50.0f, recompui::Unit::Percent);
+    game_options_menu->set_translate_2D(0.0f, 50.0f, recompui::Unit::Percent);
+    game_options_menu->set_right(metrics.options_right_start);
+
+    for (auto *option : game_options_menu->get_options()) {
+        option->set_padding(metrics.option_padding);
+        option->get_label()->set_font_size(metrics.option_font_size);
+        option->get_label()->set_line_height(metrics.option_font_size);
+        option->get_label()->set_letter_spacing(metrics.option_letter_spacing);
+    }
+}
 
 float interpolate_value(float a, float b, float t, InterpolationMethod method) {
     switch (method) {
@@ -186,11 +253,8 @@ void banjo::launcher_animation_setup(recompui::LauncherMenu *menu) {
         option->set_font_family("Suplexmentary Comic NC");
         option->set_enabled(false);
         option->set_opacity(0.0f);
-        option->set_padding(24.0f);
-        auto label = option->get_label();
-        label->set_font_size(56.0f);
-        label->set_letter_spacing(4.0f);
     }
+    banjo::apply_launcher_layout(menu);
 
     // The creation order of these is important.
     launcher_context.jiggy_color_svg = create_animated_svg(context, launcher_context.wrapper, "JiggyColor.svg", 1054.0f, 1044.0f);
@@ -380,9 +444,11 @@ void banjo::launcher_animation_update(recompui::LauncherMenu *menu) {
     launcher_context.started = true;
 
     recompui::Element *background_container = menu->get_background_container();
-    float dp_to_pixel_ratio = background_container->get_dp_to_pixel_ratio();
+    float dp_to_pixel_ratio = std::max(background_container->get_dp_to_pixel_ratio(), 1.0f);
     float bg_width = background_container->get_client_width() / dp_to_pixel_ratio;
     float bg_height = background_container->get_client_height() / dp_to_pixel_ratio;
+    LauncherLayoutMetrics layout = get_launcher_layout_metrics(menu);
+    banjo::apply_launcher_layout(menu);
     update_animated_svg(launcher_context.banjo_svg, delta_time, bg_width, bg_height);
     update_animated_svg(launcher_context.kazooie_svg, delta_time, bg_width, bg_height);
     update_animated_svg(launcher_context.jiggy_color_svg, delta_time, bg_width, bg_height);
@@ -396,9 +462,9 @@ void banjo::launcher_animation_update(recompui::LauncherMenu *menu) {
 
     float wrapper_phase = std::clamp((launcher_context.seconds - jiggy_move_over_start) / (jiggy_move_over_end - jiggy_move_over_start), 0.0f, 1.0f);
     if (wrapper_phase != launcher_context.wrapper_phase) {
-        float x_translation = interpolate_value(0, 1440 * -0.2f, wrapper_phase, InterpolationMethod::Smootherstep);
+        float x_translation = interpolate_value(0, bg_width * -0.2f, wrapper_phase, InterpolationMethod::Smootherstep);
         launcher_context.wrapper->set_translate_2D(x_translation, 0, recompui::Unit::Dp);
-        float y_translation = interpolate_value(0, launcher_options_top_offset, wrapper_phase, InterpolationMethod::Smootherstep);
+        float y_translation = interpolate_value(0, layout.menu_top_offset, wrapper_phase, InterpolationMethod::Smootherstep);
         launcher_context.wrapper->set_top(y_translation);
         float scale = interpolate_value(1, 0.666f, wrapper_phase, InterpolationMethod::Smootherstep);
         launcher_context.wrapper->set_scale_2D(scale, scale);
@@ -408,7 +474,7 @@ void banjo::launcher_animation_update(recompui::LauncherMenu *menu) {
             option->set_opacity(game_option_menu_opacity);
         }
 
-        float game_option_menu_right = interpolate_value(launcher_options_right_position_start, launcher_options_right_position_end, wrapper_phase, InterpolationMethod::Smootherstep);
+        float game_option_menu_right = interpolate_value(layout.options_right_start, layout.options_right_end, wrapper_phase, InterpolationMethod::Smootherstep);
         menu->get_game_options_menu()->set_right(game_option_menu_right);
 
         launcher_context.wrapper_phase = wrapper_phase;

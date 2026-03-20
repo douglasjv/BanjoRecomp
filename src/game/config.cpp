@@ -57,6 +57,14 @@ static void add_general_options(recomp::config::Config &config) {
         banjo::configkeys::general::analog_cam_mode,
         banjo::AnalogCamMode::Off
     );
+#ifdef __ANDROID__
+    config.add_bool_option(
+        banjo::configkeys::general::hide_onscreen_controls_with_controller,
+        "Hide Onscreen Controls with Controller",
+        "Hides the Android onscreen controls whenever a controller is connected.",
+        false
+    );
+#endif
     static EnumOptionVector camera_invert_mode_options = {
         {banjo::CameraInvertMode::InvertNone, "InvertNone", "None"},
         {banjo::CameraInvertMode::InvertX, "InvertX", "Invert X"},
@@ -108,6 +116,14 @@ T get_general_config_number_value(const std::string& option_id) {
     return static_cast<T>(std::get<double>(recompui::config::get_general_config().get_option_value(option_id)));
 }
 
+static bool get_general_config_bool_value(const std::string& option_id, bool default_value = false) {
+    recomp::config::Config& config = recompui::config::get_general_config();
+    if (!config.has_option(option_id)) {
+        return default_value;
+    }
+    return std::get<bool>(config.get_option_value(option_id));
+}
+
 banjo::NoteSavingMode banjo::get_note_saving_mode() {
     return get_general_config_enum_value<banjo::NoteSavingMode>(banjo::configkeys::general::note_saving_mode);
 }
@@ -134,6 +150,10 @@ banjo::AnalogCamMode banjo::get_analog_cam_mode() {
 
 uint32_t banjo::get_analog_cam_sensitivity() {
     return get_general_config_number_value(banjo::configkeys::general::analog_camera_sensitivity);
+}
+
+bool banjo::get_hide_onscreen_controls_with_controller() {
+    return get_general_config_bool_value(banjo::configkeys::general::hide_onscreen_controls_with_controller);
 }
 
 template <typename T = uint32_t>

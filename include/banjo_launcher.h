@@ -4,6 +4,7 @@
 #include "recompui/recompui.h"
 
 namespace banjo {
+    void apply_launcher_layout(recompui::LauncherMenu *menu);
     void launcher_animation_setup(recompui::LauncherMenu *menu);
     void launcher_animation_update(recompui::LauncherMenu *menu);
 

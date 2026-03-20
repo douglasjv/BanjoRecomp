@@ -46,6 +46,14 @@ extern "C" void recomp_error(uint8_t* rdram, recomp_context* ctx) {
     ultramodern::error_handling::quick_exit(__FILE__, __LINE__, __FUNCTION__);
 }
 
+extern "C" void recomp_is_android(uint8_t* rdram, recomp_context* ctx) {
+#ifdef __ANDROID__
+    _return<s32>(ctx, 1);
+#else
+    _return<s32>(ctx, 0);
+#endif
+}
+
 extern "C" void recomp_get_gyro_deltas(uint8_t* rdram, recomp_context* ctx) {
     float* x_out = _arg<0, float*>(rdram, ctx);
     float* y_out = _arg<1, float*>(rdram, ctx);

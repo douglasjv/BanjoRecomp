@@ -35,6 +35,13 @@ The other tool necessary will be `make` which can be installe via [Chocolatey](h
 choco install make
 ```
 
+### Android
+For Android developer builds you will also need:
+
+- Android Studio or the Android SDK command line tools with API 34, Build Tools, and an NDK that supports CMake-based arm64-v8a builds.
+- Either an Android SDK location exported through `ANDROID_HOME`/`ANDROID_SDK_ROOT` or an `android/local.properties` file with `sdk.dir=/absolute/path/to/sdk`.
+- Either an SDL 2.30.3 source tree that includes `android-project/`, or an SDL 2.30.3 source archive. You can point the build at them with `BANJO_ANDROID_SDL_SOURCE_DIR` / `banjoAndroidSdl2Dir` or `BANJO_ANDROID_SDL_ARCHIVE` / `banjoAndroidSdl2Archive`. If you provide neither, Gradle will try to download the SDL source release automatically.
+
 ## 3. Decompressing the target ROM
 You will need to decompress the NTSC-U 1.0 N64 Banjo-Kazooie ROM (sha1: d6133ace5afaa0882cf214cf88daba39e266c078) before running the recompiler.
 
@@ -65,6 +72,55 @@ If you prefer the command line or you're on a Unix platform you can build the pr
 cmake -S . -B build-cmake -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang -G Ninja -DCMAKE_BUILD_TYPE=Release # or Debug if you want to debug
 cmake --build build-cmake --target BanjoRecompiled -j$(nproc) --config Release # or Debug
 ```
+
+### Android debug APK
+
+The Android project lives under `android/` and wraps the root CMake build as an SDL-based shared library.
+
+1. Point Gradle at your Android SDK if it is not already configured globally:
+
+```bash
+export ANDROID_HOME=/absolute/path/to/android-sdk
+export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/<installed-version>
+```
+
+   Or create `android/local.properties` with:
+
+```properties
+sdk.dir=/absolute/path/to/android-sdk
+```
+
+   On macOS, if neither environment variable nor `android/local.properties` is set, the Gradle project also checks common SDK install locations such as `~/Library/Android/sdk`, `~/Library/Android/Sdk`, `~/Android/Sdk`, `/opt/homebrew/share/android-commandlinetools`, `/usr/local/share/android-commandlinetools`, `/opt/homebrew/share/android-sdk`, and `/usr/local/share/android-sdk`, and writes `android/local.properties` automatically when it finds one.
+
+2. Optionally point the build at a local SDL checkout or source archive to avoid the automatic download step:
+
+```bash
+export BANJO_ANDROID_SDL_SOURCE_DIR=/absolute/path/to/SDL2-2.30.3
+# or
+export BANJO_ANDROID_SDL_ARCHIVE=/absolute/path/to/SDL2-2.30.3.zip
+```
+
+3. Build the debug APK:
+
+```bash
+gradle -p android :app:assembleDebug
+```
+
+The resulting APK will be at:
+
+```text
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+The Android build packages the runtime assets and controller database automatically. On first launch, use the launcher to pick the supported ROM through Android's document picker. Mods and texture packs can be imported from the Mods menu through the same picker. During gameplay the Android build also enables an on-screen touch overlay with movement, face buttons, C-buttons, Start, and a Menu shortcut for opening the recomp configuration UI; paired controllers continue to work alongside it.
+
+If you need to sideload files manually instead, the Android build prefers the app-specific external files directory when available, which is typically under:
+
+```text
+Android/data/io.github.banjorecomp.android/files/
+```
+
+Mods and texture packs should be copied into that directory's `mods/` subfolder, and the ROM should be stored as `bk.n64.us.1.0.z64`.
 
 ## 6. Success
 

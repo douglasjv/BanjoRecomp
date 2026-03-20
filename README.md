@@ -39,6 +39,8 @@ A GPU supporting Direct3D 12.0 (Shader Model 6), Vulkan 1.2, or Metal Argument B
 
 On x86-64 PCs, a CPU supporting the SSE4.1 instruction set is also required (Intel Core 2 Penryn series or AMD Bulldozer and newer). ARM64 builds will work on any ARM64 CPU.
 
+Experimental Android developer builds target arm64-v8a devices with Vulkan support and a landscape-first layout, including Android document-picker based ROM/mod import plus an on-screen touch overlay that coexists with external controllers.
+
 If you have issues with crashes on startup, make sure your graphics drivers are fully up to date. 
 
 ## Features
@@ -104,6 +106,7 @@ Unlike N64 ports in the past, this project is not based on the source code provi
 - Windows: `%LOCALAPPDATA%\BanjoRecompiled\saves`
 - Linux: `~/.config/BanjoRecompiled/saves`
 - macOS: `~/Library/Application Support/BanjoRecompiled/saves`
+- Android: the app-specific files directory, typically `Android/data/io.github.banjorecomp.android/files/saves`
 
 #### How do I choose a different ROM?
 **You don't.** This project is **only** a port of Banjo-Kazooie, and it will only accept one specific ROM: the US 1.0 version of the N64 release of Banjo-Kazooie. ROMs in formats other than .z64 will be automatically converted, as long as it is the correct ROM. **This is not an emulator, and it cannot run any arbitrary ROM.**
@@ -123,7 +126,7 @@ No. Care has been taken to ensure that notes are not saved during demos.
 * Overlays such as MSI Afterburner and other software such as Wallpaper Engine can cause performance issues with this project that prevent the game from rendering correctly. Disabling such software is recommended.
 
 ## Building
-Building is not required to play this project, as prebuilt binaries (which do not contain game assets) can be found in the [Releases](https://github.com/BanjoRecomp/BanjoRecomp/releases) section. Instructions on how to build this project can be found in the [BUILDING.md](BUILDING.md) file.
+Building is not required to play this project, as prebuilt binaries (which do not contain game assets) can be found in the [Releases](https://github.com/BanjoRecomp/BanjoRecomp/releases) section. Instructions on how to build this project can be found in the [BUILDING.md](BUILDING.md) file. An experimental Android developer-build scaffold is also available under `android/`, with Gradle-based APK packaging around the root CMake build.
 
 ## Libraries Used and Projects Referenced
 * [N64Recomp](https://github.com/N64Recomp/N64Recomp) for statically recompiling the game's code to run natively

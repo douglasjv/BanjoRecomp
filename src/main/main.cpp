@@ -1,21 +1,25 @@
-#include <cstdio>
-#include <cassert>
-#include <unordered_map>
-#include <vector>
 #include <array>
+#include <cassert>
+#include <chrono>
+#include <cstdio>
 #include <filesystem>
+#include <cinttypes>
 #include <numeric>
 #include <stdexcept>
-#include <cinttypes>
+#include <unordered_map>
+#include <vector>
 
 #include "nfd.h"
 
 #include "ultramodern/ultra64.h"
 #include "ultramodern/ultramodern.hpp"
 #include "ultramodern/config.hpp"
+#if !defined(__ANDROID__)
 #define SDL_MAIN_HANDLED
-#ifdef _WIN32
+#endif
+#if defined(_WIN32) || defined(__ANDROID__)
 #include "SDL.h"
+#include "SDL_syswm.h"
 #else
 #include "SDL2/SDL.h"
 #include "SDL2/SDL_syswm.h"
@@ -41,6 +45,7 @@
 #include "banjo_support.h"
 #include "banjo_game.h"
 #include "banjo_launcher.h"
+#include "banjo_touch_controls.h"
 #include "recomp_data.h"
 #include "ovl_patches.hpp"
 #include "theme.h"
@@ -52,6 +57,13 @@
 #include "../../patches/input.h"
 #include "../../patches/sound.h"
 #include "../../patches/misc_funcs.h"
+
+#if defined(__ANDROID__)
+#include <android/log.h>
+#define BANJO_ANDROID_PERF_LOG(...) __android_log_print(ANDROID_LOG_INFO, "BanjoPerf", __VA_ARGS__)
+#else
+#define BANJO_ANDROID_PERF_LOG(...) ((void)0)
+#endif
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -82,12 +94,18 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
     SDL_SetHint(SDL_HINT_MOUSE_FOCUS_CLICKTHROUGH, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+#ifdef __ANDROID__
+    SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, "1");
+    SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");
+    SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+#endif
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC) > 0) {
         exit_error("Failed to initialize SDL2: %s\n", SDL_GetError());
     }
 
     fprintf(stdout, "SDL Video Driver: %s\n", SDL_GetCurrentVideoDriver());
+    BANJO_ANDROID_PERF_LOG("startup videoDriver=%s", SDL_GetCurrentVideoDriver());
 
     return {};
 }
@@ -158,7 +176,11 @@ bool SetImageAsIcon(const char* filename, SDL_Window* window)
 SDL_Window* window;
 
 ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::gfx_data_t) {
-    uint32_t flags = SDL_WINDOW_RESIZABLE;
+    uint32_t flags = 0;
+
+#ifndef __ANDROID__
+    flags |= SDL_WINDOW_RESIZABLE;
+#endif
 
 #if defined(__APPLE__)
     flags |= SDL_WINDOW_METAL;
@@ -172,16 +194,18 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
         exit_error("Failed to create window: %s\n", SDL_GetError());
     }
 
+#if defined(_WIN32) || defined(__APPLE__)
     SDL_SysWMinfo wmInfo;
     SDL_VERSION(&wmInfo.version);
     SDL_GetWindowWMInfo(window, &wmInfo);
+#endif
 
 #if defined(_WIN32)
     // There's a 50/50 chance to choose the icon where the smallest variant is either Banjo or Kazooie alone.
     bool choose_kazooie_icon = (rand() % 2 == 0);
     HICON new_icon = LoadIcon(GetModuleHandle(NULL), choose_kazooie_icon ? MAKEINTRESOURCE(APP_ICON_K) : MAKEINTRESOURCE(APP_ICON_B));
     SendMessage(wmInfo.info.win.window, WM_SETICON, ICON_SMALL2, (LPARAM)(new_icon));
-#elif defined(__linux__)
+#elif defined(__linux__) && !defined(__ANDROID__)
     SetImageAsIcon("icons/app.png", window);
 #endif
 
@@ -199,6 +223,7 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
 
 void update_gfx(void*) {
     recompinput::handle_events();
+    banjo::touch_controls::update();
 }
 
 static SDL_AudioCVT audio_convert;
@@ -210,6 +235,74 @@ static uint32_t output_sample_rate = 48000;
 // Channel count.
 constexpr uint32_t input_channels = 2;
 static uint32_t output_channels = 2;
+
+#ifdef __ANDROID__
+constexpr uint16_t audio_device_buffer_samples = 0x400;
+constexpr uint32_t audio_skip_quantum_us = 150000;
+constexpr auto android_perf_log_interval = std::chrono::seconds(5);
+
+struct AndroidAudioPerfState {
+    std::chrono::steady_clock::time_point last_log_time = std::chrono::steady_clock::now();
+    uint32_t skip_events = 0;
+    uint32_t max_skip_factor = 0;
+    uint64_t last_queue_us = 0;
+    uint64_t max_queue_us = 0;
+};
+
+static AndroidAudioPerfState android_audio_perf_state{};
+
+static uint32_t get_android_msaa_samples() {
+    switch (ultramodern::renderer::get_graphics_config().msaa_option) {
+        case ultramodern::renderer::Antialiasing::MSAA2X:
+            return 2;
+        case ultramodern::renderer::Antialiasing::MSAA4X:
+            return 4;
+        case ultramodern::renderer::Antialiasing::MSAA8X:
+            return 8;
+        case ultramodern::renderer::Antialiasing::None:
+        case ultramodern::renderer::Antialiasing::OptionCount:
+        default:
+            return 1;
+    }
+}
+
+void log_android_audio_perf(uint64_t queued_microseconds, uint32_t skip_factor) {
+    android_audio_perf_state.last_queue_us = queued_microseconds;
+    android_audio_perf_state.max_queue_us = std::max(android_audio_perf_state.max_queue_us, queued_microseconds);
+    if (skip_factor > 0) {
+        android_audio_perf_state.skip_events++;
+        android_audio_perf_state.max_skip_factor = std::max(android_audio_perf_state.max_skip_factor, skip_factor);
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if ((now - android_audio_perf_state.last_log_time) < android_perf_log_interval) {
+        return;
+    }
+
+    BANJO_ANDROID_PERF_LOG(
+        "audio queueMs=%.1f maxQueueMs=%.1f skips=%u maxSkip=%u inputHz=%u outputHz=%u refresh=%u resolutionScale=%.2f msaa=%u",
+        android_audio_perf_state.last_queue_us / 1000.0,
+        android_audio_perf_state.max_queue_us / 1000.0,
+        android_audio_perf_state.skip_events,
+        android_audio_perf_state.max_skip_factor,
+        sample_rate,
+        output_sample_rate,
+        ultramodern::get_display_refresh_rate(),
+        ultramodern::get_resolution_scale(),
+        get_android_msaa_samples()
+    );
+
+    android_audio_perf_state.last_log_time = now;
+    android_audio_perf_state.skip_events = 0;
+    android_audio_perf_state.max_skip_factor = 0;
+    android_audio_perf_state.max_queue_us = queued_microseconds;
+}
+#else
+constexpr uint16_t audio_device_buffer_samples = 0x100;
+constexpr uint32_t audio_skip_quantum_us = 100000;
+
+void log_android_audio_perf(uint64_t, uint32_t) {}
+#endif
 
 // Terminology: a frame is a collection of samples for each channel. e.g. 2 input samples is one input frame. This is unrelated to graphical frames.
 
@@ -264,13 +357,14 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
         throw std::runtime_error("Error using SDL audio converter");
     }
 
-    uint64_t cur_queued_microseconds = uint64_t(SDL_GetQueuedAudioSize(audio_device)) / bytes_per_frame * 1000000 / sample_rate;
+    const uint64_t queued_output_frames = uint64_t(SDL_GetQueuedAudioSize(audio_device)) / (sizeof(float) * output_channels);
+    const uint64_t cur_queued_microseconds = queued_output_frames * 1000000 / output_sample_rate;
     uint32_t num_bytes_to_queue = audio_convert.len_cvt - output_channels * discarded_output_frames * sizeof(swap_buffer[0]);
     float* samples_to_queue = swap_buffer.data() + output_channels * discarded_output_frames / 2;
 
     // Prevent audio latency from building up by skipping samples in incoming audio when too many samples are already queued.
     // Skip samples based on how many microseconds of samples are queued already.
-    uint32_t skip_factor = cur_queued_microseconds / 100000;
+    uint32_t skip_factor = cur_queued_microseconds / audio_skip_quantum_us;
     if (skip_factor != 0) {
         uint32_t skip_ratio = 1 << skip_factor;
         num_bytes_to_queue /= skip_ratio;
@@ -279,6 +373,8 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
             samples_to_queue[2 * i + 1] = samples_to_queue[2 * skip_ratio * i + 1];
         }
     }
+
+    log_android_audio_perf(cur_queued_microseconds, skip_factor);
 
     // Queue the swapped audio data.
     // Offset the data start by only half the discarded frame count as the other half of the discarded frames are at the end of the buffer.
@@ -332,14 +428,15 @@ bool reset_audio(uint32_t output_freq) {
         .format = AUDIO_F32,
         .channels = (Uint8)output_channels,
         .silence = 0, // calculated
-        .samples = 0x100, // Fairly small sample count to reduce the latency of internal buffering
+        .samples = audio_device_buffer_samples,
         .padding = 0, // unused
         .size = 0, // calculated
         .callback = nullptr,
         .userdata = nullptr
     };
 
-    audio_device = SDL_OpenAudioDevice(nullptr, false, &spec_desired, nullptr, 0);
+    SDL_AudioSpec spec_obtained{};
+    audio_device = SDL_OpenAudioDevice(nullptr, false, &spec_desired, &spec_obtained, 0);
     if (audio_device == 0) {
         std::string audio_error = std::string("No audio device could be found. Please make sure an audio device is available.\nError opening audio device: ") + std::string(SDL_GetError());
         recompui::message_box(audio_error.c_str());
@@ -350,6 +447,8 @@ bool reset_audio(uint32_t output_freq) {
 
     output_sample_rate = output_freq;
     update_audio_converter();
+    BANJO_ANDROID_PERF_LOG("audio opened freq=%d channels=%u samples=%u requestedSamples=%u",
+        spec_obtained.freq, spec_obtained.channels, spec_obtained.samples, audio_device_buffer_samples);
 
     return true;
 }
@@ -533,7 +632,7 @@ void release_preload(PreloadContext& context) {
     context = {};
 }
 
-#elif defined(__linux__) || defined(APPLE)
+#elif defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__)
 
 struct PreloadContext {
 
@@ -583,7 +682,6 @@ void on_launcher_init(recompui::LauncherMenu *menu) {
     );
 
     game_options_menu->add_default_options();
-    game_options_menu->set_width(30, recompui::Unit::Percent);
 
     for (auto option : game_options_menu->get_options()) {
         option->set_justify_content(recompui::JustifyContent::FlexEnd);
@@ -595,20 +693,8 @@ void on_launcher_init(recompui::LauncherMenu *menu) {
         }
     }
 
-    recompui::Element *menu_container = menu->get_menu_container();
-    menu_container->set_width(1440);
-    menu_container->unset_left();
-    menu_container->set_top(banjo::launcher_options_top_offset);
-    menu_container->set_bottom(-banjo::launcher_options_top_offset);
-    menu_container->set_right(50, recompui::Unit::Percent);
-    menu_container->set_translate_2D(50.0f, 0.0f, recompui::Unit::Percent);
-
-    game_options_menu->unset_left();
-    game_options_menu->set_bottom(50.0f, recompui::Unit::Percent);
-    game_options_menu->set_translate_2D(0.0f, 50.0f, recompui::Unit::Percent);
-    game_options_menu->set_right(banjo::launcher_options_right_position_start);
-
     menu->remove_default_title();
+    banjo::apply_launcher_layout(menu);
 
     banjo::launcher_animation_setup(menu);
 }
@@ -730,6 +816,7 @@ int main(int argc, char** argv) {
     // REGISTER_FUNC(recomp_get_mouse_deltas);
     REGISTER_FUNC(recomp_get_inverted_axes);
     REGISTER_FUNC(recomp_get_analog_inverted_axes);
+    REGISTER_FUNC(recomp_is_android);
     recompui::register_ui_exports();
     recomputil::register_data_api_exports();
     recomptheme::set_custom_theme();
@@ -754,6 +841,9 @@ int main(int argc, char** argv) {
     ultramodern::renderer::callbacks_t renderer_callbacks{
         .create_render_context = [](uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool developer_mode) {
             auto presentation_mode = ultramodern::renderer::PresentationMode::PresentEarly;
+#ifdef __ANDROID__
+            presentation_mode = ultramodern::renderer::PresentationMode::Console;
+#endif
             return recompui::renderer::create_render_context(rdram, window_handle, presentation_mode, developer_mode);
         },
     };
@@ -816,6 +906,7 @@ int main(int argc, char** argv) {
         threads_callbacks
     );
 
+    banjo::touch_controls::shutdown();
     NFD_Quit();
 
     if (preloaded) {

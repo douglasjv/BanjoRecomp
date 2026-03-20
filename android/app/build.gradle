@@ -1,0 +1,293 @@
+plugins {
+    id 'com.android.application'
+}
+
+def repoRoot = rootProject.projectDir.parentFile
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { stream ->
+        localProperties.load(stream)
+    }
+}
+
+def candidateSdkRoots = [
+    System.getenv("ANDROID_HOME"),
+    System.getenv("ANDROID_SDK_ROOT"),
+    localProperties.getProperty("sdk.dir"),
+    new File(System.getProperty("user.home"), "Library/Android/sdk").absolutePath,
+    new File(System.getProperty("user.home"), "Library/Android/Sdk").absolutePath,
+    new File(System.getProperty("user.home"), "Android/Sdk").absolutePath,
+    new File(System.getProperty("user.home"), "Android/sdk").absolutePath,
+    "/opt/homebrew/share/android-commandlinetools",
+    "/usr/local/share/android-commandlinetools",
+    "/opt/homebrew/share/android-sdk",
+    "/usr/local/share/android-sdk",
+].findAll { it != null && !it.trim().isEmpty() }
+
+def writeLocalProperties = {
+    localPropertiesFile.parentFile.mkdirs()
+    localPropertiesFile.withOutputStream { stream ->
+        localProperties.store(stream, null)
+    }
+}
+
+def sdl2Version = System.getenv("SDL2_VERSION") ?: "2.30.3"
+def sdl2DirPath = findProperty("banjoAndroidSdl2Dir") ?: System.getenv("BANJO_ANDROID_SDL_SOURCE_DIR")
+def sdl2ArchivePath = findProperty("banjoAndroidSdl2Archive") ?: System.getenv("BANJO_ANDROID_SDL_ARCHIVE")
+def sdkRootPath = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT") ?: localProperties.getProperty("sdk.dir")
+if (!sdkRootPath || !new File(sdkRootPath).isDirectory()) {
+    def detectedSdkRoot = candidateSdkRoots.find { new File(it).isDirectory() }
+    if (detectedSdkRoot) {
+        sdkRootPath = detectedSdkRoot
+        if (localProperties.getProperty("sdk.dir") != sdkRootPath) {
+            localProperties.setProperty("sdk.dir", sdkRootPath)
+            writeLocalProperties()
+        }
+    }
+}
+
+if (!sdkRootPath || !new File(sdkRootPath).isDirectory()) {
+    def searchedLocations = candidateSdkRoots.collect { " - ${it}" }.join('\n')
+    throw new GradleException(
+        "Android SDK not found. Set ANDROID_HOME or ANDROID_SDK_ROOT, or add sdk.dir to ${localPropertiesFile}. " +
+        "Searched:\n${searchedLocations}"
+    )
+}
+
+def ndkHomePath = System.getenv("ANDROID_NDK_HOME") ?: localProperties.getProperty("ndk.dir")
+
+def resolveNdkVersion = {
+    if (ndkHomePath) {
+        def ndkHomeDir = file(ndkHomePath)
+        if (ndkHomeDir.exists()) {
+            return ndkHomeDir.name
+        }
+    }
+
+    if (sdkRootPath) {
+        def ndkRootDir = new File(sdkRootPath, "ndk")
+        def ndkVersions = ndkRootDir.listFiles()?.findAll { it.isDirectory() }*.name?.sort()
+        if (ndkVersions) {
+            return ndkVersions.last()
+        }
+    }
+
+    return null
+}
+
+def resolvedNdkVersion = resolveNdkVersion()
+def downloadedSdl2Dir = file("$buildDir/external/SDL2-${sdl2Version}")
+def sdl2Dir = sdl2DirPath ? file(sdl2DirPath) : downloadedSdl2Dir
+def sdl2CmakePath = sdl2Dir.absolutePath.replace('\\', '/')
+def sdl2JavaSourceDir = new File(sdl2Dir, "android-project/app/src/main/java")
+def generatedSdlJavaDir = file("$buildDir/generated/banjoSdlJava")
+def sdl2Activity = new File(sdl2Dir, "android-project/app/src/main/java/org/libsdl/app/SDLActivity.java")
+def sdl2DownloadUrl = "https://github.com/libsdl-org/SDL/releases/download/release-${sdl2Version}/SDL2-${sdl2Version}.zip"
+
+def generatedRuntimeAssetsDir = file("$buildDir/generated/banjoRuntimeAssets")
+def runtimeRootDir = new File(generatedRuntimeAssetsDir, "runtime")
+
+android {
+    namespace "io.github.banjorecomp.android"
+    compileSdk 34
+
+    if (resolvedNdkVersion) {
+        ndkVersion resolvedNdkVersion
+    }
+
+    defaultConfig {
+        applicationId "io.github.banjorecomp.android"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.1"
+
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments "-DBANJO_ANDROID_SDL_SOURCE_DIR=${sdl2CmakePath}", "-DANDROID_PLATFORM=android-24"
+                targets "BanjoRecompiled"
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+            jniDebuggable true
+        }
+        release {
+            minifyEnabled false
+        }
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile "src/main/AndroidManifest.xml"
+            java.srcDirs += [
+                "src/main/java",
+                generatedSdlJavaDir,
+            ]
+            res.srcDirs = ["src/main/res"]
+            assets.srcDirs = [generatedRuntimeAssetsDir]
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+
+    lint {
+        checkReleaseBuilds false
+    }
+}
+
+tasks.register("prepareSdl2Source") {
+    outputs.dir(downloadedSdl2Dir)
+
+    doLast {
+        if (sdl2DirPath || sdl2Activity.exists()) {
+            return
+        }
+
+        def archiveFile = sdl2ArchivePath ? file(sdl2ArchivePath) : file("$buildDir/external/SDL2-${sdl2Version}.zip")
+        archiveFile.parentFile.mkdirs()
+
+        if (!archiveFile.exists()) {
+            logger.lifecycle("Downloading SDL2 ${sdl2Version} source archive from ${sdl2DownloadUrl}")
+            new URL(sdl2DownloadUrl).withInputStream { input ->
+                archiveFile.withOutputStream { output ->
+                    output << input
+                }
+            }
+        }
+
+        delete(downloadedSdl2Dir)
+        copy {
+            into downloadedSdl2Dir.parentFile
+            from archiveFile.name.endsWith(".zip") ? zipTree(archiveFile) : tarTree(resources.gzip(archiveFile))
+        }
+
+        if (!sdl2Activity.exists()) {
+            throw new GradleException("Prepared SDL2 sources are missing android-project/app/src/main/java/org/libsdl/app/SDLActivity.java under ${downloadedSdl2Dir}.")
+        }
+    }
+}
+
+tasks.register("prepareRuntimeAssets", Sync) {
+    into generatedRuntimeAssetsDir
+
+    from(new File(repoRoot, "assets")) {
+        into "runtime/assets"
+    }
+
+    from(new File(repoRoot, "recompcontrollerdb.txt")) {
+        into "runtime"
+    }
+
+    doLast {
+        runtimeRootDir.mkdirs()
+
+        def manifestFile = new File(runtimeRootDir, "runtime-assets.txt")
+        def entries = []
+
+        fileTree(runtimeRootDir).visit { details ->
+            if (!details.isDirectory() && details.file != manifestFile) {
+                def relativePath = runtimeRootDir.toPath()
+                    .relativize(details.file.toPath())
+                    .toString()
+                    .replace(File.separatorChar, '/' as char)
+                entries << relativePath
+            }
+        }
+
+        entries.sort()
+        manifestFile.text = entries.join('\n') + '\n'
+    }
+}
+
+tasks.register("validateSdl2SourceDir") {
+    dependsOn("prepareSdl2Source")
+
+    doFirst {
+        if (!sdl2Activity.exists()) {
+            throw new GradleException("Provide an SDL2 source tree with banjoAndroidSdl2Dir/BANJO_ANDROID_SDL_SOURCE_DIR, or an SDL2 source archive with banjoAndroidSdl2Archive/BANJO_ANDROID_SDL_ARCHIVE. The resolved SDL location must contain android-project/app/src/main/java/org/libsdl/app/SDLActivity.java.")
+        }
+    }
+}
+
+tasks.register("prepareSdl2JavaSources", Sync) {
+    dependsOn("prepareSdl2Source")
+
+    from(sdl2JavaSourceDir)
+    into(generatedSdlJavaDir)
+
+    doLast {
+        def hidDeviceManager = new File(generatedSdlJavaDir, "org/libsdl/app/HIDDeviceManager.java")
+        if (!hidDeviceManager.exists()) {
+            throw new GradleException("Prepared SDL2 Java sources are missing org/libsdl/app/HIDDeviceManager.java under ${generatedSdlJavaDir}.")
+        }
+
+        def source = hidDeviceManager.getText("UTF-8")
+        def usbLegacy = "        mContext.registerReceiver(mUsbBroadcast, filter);"
+        def usbPatched = """        if (Build.VERSION.SDK_INT >= 33) { /* Android 13.0 (TIRAMISU) */
+            mContext.registerReceiver(mUsbBroadcast, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            mContext.registerReceiver(mUsbBroadcast, filter);
+        }"""
+        def bluetoothLegacy = "        mContext.registerReceiver(mBluetoothBroadcast, filter);"
+        def bluetoothPatched = """        if (Build.VERSION.SDK_INT >= 33) { /* Android 13.0 (TIRAMISU) */
+            mContext.registerReceiver(mBluetoothBroadcast, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            mContext.registerReceiver(mBluetoothBroadcast, filter);
+        }"""
+
+        if (!source.contains("mContext.registerReceiver(mUsbBroadcast, filter, Context.RECEIVER_EXPORTED);")) {
+            if (!source.contains(usbLegacy)) {
+                throw new GradleException("Unable to locate SDL USB HID receiver registration to patch for Android 13+.")
+            }
+            source = source.replace(usbLegacy, usbPatched)
+        }
+
+        if (!source.contains("mContext.registerReceiver(mBluetoothBroadcast, filter, Context.RECEIVER_EXPORTED);")) {
+            if (!source.contains(bluetoothLegacy)) {
+                throw new GradleException("Unable to locate SDL Bluetooth HID receiver registration to patch for Android 13+.")
+            }
+            source = source.replace(bluetoothLegacy, bluetoothPatched)
+        }
+
+        hidDeviceManager.write(source, "UTF-8")
+    }
+}
+
+tasks.matching { task ->
+    task.name.startsWith("configureCMake") ||
+        task.name.startsWith("buildCMake") ||
+        task.name.startsWith("externalNativeBuild") ||
+        task.name.startsWith("generateJsonModel")
+}.configureEach {
+    dependsOn("validateSdl2SourceDir")
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("validateSdl2SourceDir")
+    dependsOn("prepareSdl2JavaSources")
+    dependsOn("prepareRuntimeAssets")
+}

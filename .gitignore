@@ -58,6 +58,13 @@ imgui.ini
 rt64.log
 
 node_modules/
+.gradle/
+.cxx/
+local.properties
+android/app/build/
+android/build/
+build-n64recomp/
+.github/skills/
 
 # Recompiler Linux binary
 N64Recomp
