@@ -94,6 +94,12 @@ namespace {
         recompui::Label* label = nullptr;
     };
 
+    struct TouchInputSnapshot {
+        std::array<bool, recompinput::num_game_inputs> buttons{};
+        float stick_x = 0.0f;
+        float stick_y = 0.0f;
+    };
+
     struct State {
         std::atomic_bool initialized = false;
         bool event_watch_installed = false;
@@ -238,7 +244,13 @@ namespace {
     void clear_active_touches_locked() {
         state.active_touches.clear();
         state.pending_open_config = false;
-        recompinput::clear_touch_input();
+    }
+
+    void set_snapshot_button(TouchInputSnapshot& snapshot, recompinput::GameInput input) {
+        size_t input_index = static_cast<size_t>(input);
+        if (input_index < snapshot.buttons.size()) {
+            snapshot.buttons[input_index] = true;
+        }
     }
 
     void update_touch_position(ActiveTouch& touch, const SDL_TouchFingerEvent& finger_event) {
@@ -274,9 +286,8 @@ namespace {
         return TouchTarget::None;
     }
 
-    void apply_touch_input_locked() {
-        recompinput::clear_touch_input();
-
+    TouchInputSnapshot compute_touch_input_locked() {
+        TouchInputSnapshot snapshot{};
         const ActiveTouch* stick_touch = nullptr;
         for (const auto& [finger_id, touch] : state.active_touches) {
             (void)finger_id;
@@ -307,7 +318,8 @@ namespace {
                 dy = dy / length * scaled_length;
             }
 
-            recompinput::set_touch_stick(dx, dy);
+            snapshot.stick_x = dx;
+            snapshot.stick_y = dy;
         }
 
         for (const auto& [finger_id, touch] : state.active_touches) {
@@ -315,27 +327,27 @@ namespace {
             switch (touch.target) {
             case TouchTarget::A:
                 if (state.layout.button_a.contains(touch.x_px, touch.y_px, state.layout.button_a.radius * 0.55f)) {
-                    recompinput::set_touch_button(recompinput::GameInput::A, true);
+                    set_snapshot_button(snapshot, recompinput::GameInput::A);
                 }
                 break;
             case TouchTarget::B:
                 if (state.layout.button_b.contains(touch.x_px, touch.y_px, state.layout.button_b.radius * 0.55f)) {
-                    recompinput::set_touch_button(recompinput::GameInput::B, true);
+                    set_snapshot_button(snapshot, recompinput::GameInput::B);
                 }
                 break;
             case TouchTarget::Z:
                 if (state.layout.button_z.contains(touch.x_px, touch.y_px, state.layout.button_z.radius * 0.55f)) {
-                    recompinput::set_touch_button(recompinput::GameInput::Z, true);
+                    set_snapshot_button(snapshot, recompinput::GameInput::Z);
                 }
                 break;
             case TouchTarget::R:
                 if (state.layout.button_r.contains(touch.x_px, touch.y_px, state.layout.button_r.radius * 0.55f)) {
-                    recompinput::set_touch_button(recompinput::GameInput::R, true);
+                    set_snapshot_button(snapshot, recompinput::GameInput::R);
                 }
                 break;
             case TouchTarget::Start:
                 if (state.layout.button_start.contains(touch.x_px, touch.y_px, state.layout.button_start.radius * 0.65f)) {
-                    recompinput::set_touch_button(recompinput::GameInput::START, true);
+                    set_snapshot_button(snapshot, recompinput::GameInput::START);
                 }
                 break;
             case TouchTarget::CPad:
@@ -345,10 +357,10 @@ namespace {
                     float center_deadzone = state.layout.c_center.radius * 0.45f;
                     if ((dx * dx + dy * dy) >= (center_deadzone * center_deadzone)) {
                         if (std::fabs(dx) > std::fabs(dy)) {
-                            recompinput::set_touch_button(dx > 0.0f ? recompinput::GameInput::C_RIGHT : recompinput::GameInput::C_LEFT, true);
+                            set_snapshot_button(snapshot, dx > 0.0f ? recompinput::GameInput::C_RIGHT : recompinput::GameInput::C_LEFT);
                         }
                         else {
-                            recompinput::set_touch_button(dy > 0.0f ? recompinput::GameInput::C_DOWN : recompinput::GameInput::C_UP, true);
+                            set_snapshot_button(snapshot, dy > 0.0f ? recompinput::GameInput::C_DOWN : recompinput::GameInput::C_UP);
                         }
                     }
                 }
@@ -357,6 +369,8 @@ namespace {
                 break;
             }
         }
+
+        return snapshot;
     }
 
     bool overlay_enabled_now() {
@@ -376,51 +390,62 @@ namespace {
             return 1;
         }
 
-        std::lock_guard lock{ state.mutex };
-        switch (event->type) {
-        case SDL_EventType::SDL_FINGERDOWN: {
-            auto& finger_event = event->tfinger;
-            float x_px = finger_event.x * state.layout.width_px;
-            float y_px = finger_event.y * state.layout.height_px;
-            TouchTarget target = pick_target(x_px, y_px);
-            if (target == TouchTarget::None) {
-                return 1;
+        TouchInputSnapshot snapshot{};
+        bool snapshot_valid = false;
+        {
+            std::lock_guard lock{ state.mutex };
+            switch (event->type) {
+            case SDL_EventType::SDL_FINGERDOWN: {
+                auto& finger_event = event->tfinger;
+                float x_px = finger_event.x * state.layout.width_px;
+                float y_px = finger_event.y * state.layout.height_px;
+                TouchTarget target = pick_target(x_px, y_px);
+                if (target == TouchTarget::None) {
+                    return 1;
+                }
+
+                ActiveTouch& touch = state.active_touches[finger_event.fingerId];
+                touch.target = target;
+                touch.sequence = state.next_sequence++;
+                update_touch_position(touch, finger_event);
+                snapshot = compute_touch_input_locked();
+                snapshot_valid = true;
+                break;
+            }
+            case SDL_EventType::SDL_FINGERMOTION: {
+                auto it = state.active_touches.find(event->tfinger.fingerId);
+                if (it == state.active_touches.end()) {
+                    return 1;
+                }
+
+                update_touch_position(it->second, event->tfinger);
+                snapshot = compute_touch_input_locked();
+                snapshot_valid = true;
+                break;
+            }
+            case SDL_EventType::SDL_FINGERUP: {
+                auto it = state.active_touches.find(event->tfinger.fingerId);
+                if (it == state.active_touches.end()) {
+                    return 1;
+                }
+
+                update_touch_position(it->second, event->tfinger);
+                if (it->second.target == TouchTarget::Config &&
+                    state.layout.config.contains(it->second.x_px, it->second.y_px, 12.0f * state.layout.dp_to_px)) {
+                    state.pending_open_config = true;
+                }
+                state.active_touches.erase(it);
+                snapshot = compute_touch_input_locked();
+                snapshot_valid = true;
+                break;
+            }
+            default:
+                break;
             }
 
-            ActiveTouch& touch = state.active_touches[finger_event.fingerId];
-            touch.target = target;
-            touch.sequence = state.next_sequence++;
-            update_touch_position(touch, finger_event);
-            apply_touch_input_locked();
-            break;
-        }
-        case SDL_EventType::SDL_FINGERMOTION: {
-            auto it = state.active_touches.find(event->tfinger.fingerId);
-            if (it == state.active_touches.end()) {
-                return 1;
+            if (snapshot_valid) {
+                recompinput::set_touch_input_state(snapshot.buttons, snapshot.stick_x, snapshot.stick_y);
             }
-
-            update_touch_position(it->second, event->tfinger);
-            apply_touch_input_locked();
-            break;
-        }
-        case SDL_EventType::SDL_FINGERUP: {
-            auto it = state.active_touches.find(event->tfinger.fingerId);
-            if (it == state.active_touches.end()) {
-                return 1;
-            }
-
-            update_touch_position(it->second, event->tfinger);
-            if (it->second.target == TouchTarget::Config &&
-                state.layout.config.contains(it->second.x_px, it->second.y_px, 12.0f * state.layout.dp_to_px)) {
-                state.pending_open_config = true;
-            }
-            state.active_touches.erase(it);
-            apply_touch_input_locked();
-            break;
-        }
-        default:
-            break;
         }
 
         return 1;
@@ -499,6 +524,10 @@ void update() {
     bool should_show = overlay_enabled_now();
     bool context_shown = recompui::is_context_shown(state.context);
     bool controller_dimmed = recompui::get_cont_active();
+    TouchInputSnapshot touch_snapshot{};
+    bool active_touches_empty = true;
+    bool pending_open_config = false;
+    bool sync_touch_input = false;
 
     // Avoid holding the overlay context lock while querying global UI capture state, as draw_hook
     // takes ui_state_mutex before opening shown contexts and can deadlock with this update path.
@@ -524,55 +553,66 @@ void update() {
         state.layout = layout;
         if (!should_show) {
             clear_active_touches_locked();
+            sync_touch_input = true;
         }
-
-        float knob_x = state.layout.left_stick.x;
-        float knob_y = state.layout.left_stick.y;
-        float stick_x = 0.0f;
-        float stick_y = 0.0f;
-        recompinput::get_touch_stick(&stick_x, &stick_y);
-        knob_x += stick_x * state.layout.left_stick.radius * 0.55f;
-        knob_y -= stick_y * state.layout.left_stick.radius * 0.55f;
-
-        state.root->set_opacity((controller_dimmed && state.active_touches.empty()) ? 0.28f : state.layout.overlay_opacity);
-
-        float stick_diameter_dp = to_dp(state.layout.left_stick.radius * 2.0f);
-        state.left_stick_base->set_left(to_dp(state.layout.left_stick.x - state.layout.left_stick.radius));
-        state.left_stick_base->set_top(to_dp(state.layout.left_stick.y - state.layout.left_stick.radius));
-        state.left_stick_base->set_width(stick_diameter_dp);
-        state.left_stick_base->set_height(stick_diameter_dp);
-        state.left_stick_base->set_border_radius(stick_diameter_dp * 0.5f);
-
-        float knob_diameter_dp = to_dp(state.layout.left_knob.radius * 2.0f);
-        state.left_stick_knob->set_left(to_dp(knob_x - state.layout.left_knob.radius));
-        state.left_stick_knob->set_top(to_dp(knob_y - state.layout.left_knob.radius));
-        state.left_stick_knob->set_width(knob_diameter_dp);
-        state.left_stick_knob->set_height(knob_diameter_dp);
-        state.left_stick_knob->set_border_radius(knob_diameter_dp * 0.5f);
-        state.left_stick_knob->set_background_color((stick_x != 0.0f || stick_y != 0.0f) ? recompui::theme::color::PrimaryA50 : recompui::theme::color::PrimaryA30);
-
-        apply_circle_visual(state.button_a, state.layout.button_a, state.layout.button_font_size_dp, recompinput::get_touch_button(recompinput::GameInput::A), recompui::theme::color::SuccessA50);
-        apply_circle_visual(state.button_b, state.layout.button_b, state.layout.button_font_size_dp, recompinput::get_touch_button(recompinput::GameInput::B), recompui::theme::color::WarningA50);
-        apply_circle_visual(state.button_z, state.layout.button_z, state.layout.button_font_size_dp, recompinput::get_touch_button(recompinput::GameInput::Z), recompui::theme::color::PrimaryA50);
-        apply_circle_visual(state.button_r, state.layout.button_r, state.layout.button_font_size_dp, recompinput::get_touch_button(recompinput::GameInput::R), recompui::theme::color::SecondaryA50);
-        apply_circle_visual(state.button_start, state.layout.button_start, std::max(state.layout.small_button_font_size_dp, 16.0f), recompinput::get_touch_button(recompinput::GameInput::START), recompui::theme::color::PrimaryA50);
-        apply_circle_visual(state.c_up, state.layout.c_up, state.layout.small_button_font_size_dp, recompinput::get_touch_button(recompinput::GameInput::C_UP), recompui::theme::color::PrimaryA50);
-        apply_circle_visual(state.c_down, state.layout.c_down, state.layout.small_button_font_size_dp, recompinput::get_touch_button(recompinput::GameInput::C_DOWN), recompui::theme::color::PrimaryA50);
-        apply_circle_visual(state.c_left, state.layout.c_left, state.layout.small_button_font_size_dp, recompinput::get_touch_button(recompinput::GameInput::C_LEFT), recompui::theme::color::PrimaryA50);
-        apply_circle_visual(state.c_right, state.layout.c_right, state.layout.small_button_font_size_dp, recompinput::get_touch_button(recompinput::GameInput::C_RIGHT), recompui::theme::color::PrimaryA50);
-        apply_rect_visual(state.config, state.layout.config, 16.0f, state.pending_open_config);
+        active_touches_empty = state.active_touches.empty();
+        pending_open_config = state.pending_open_config;
     }
+
+    if (sync_touch_input) {
+        recompinput::set_touch_input_state(touch_snapshot.buttons, touch_snapshot.stick_x, touch_snapshot.stick_y);
+    }
+    else {
+        recompinput::get_touch_input_state(touch_snapshot.buttons, &touch_snapshot.stick_x, &touch_snapshot.stick_y);
+    }
+
+    float knob_x = layout.left_stick.x + touch_snapshot.stick_x * layout.left_stick.radius * 0.55f;
+    float knob_y = layout.left_stick.y - touch_snapshot.stick_y * layout.left_stick.radius * 0.55f;
+
+    state.root->set_opacity((controller_dimmed && active_touches_empty) ? 0.28f : layout.overlay_opacity);
+
+    float stick_diameter_dp = to_dp(layout.left_stick.radius * 2.0f);
+    state.left_stick_base->set_left(to_dp(layout.left_stick.x - layout.left_stick.radius));
+    state.left_stick_base->set_top(to_dp(layout.left_stick.y - layout.left_stick.radius));
+    state.left_stick_base->set_width(stick_diameter_dp);
+    state.left_stick_base->set_height(stick_diameter_dp);
+    state.left_stick_base->set_border_radius(stick_diameter_dp * 0.5f);
+
+    float knob_diameter_dp = to_dp(layout.left_knob.radius * 2.0f);
+    state.left_stick_knob->set_left(to_dp(knob_x - layout.left_knob.radius));
+    state.left_stick_knob->set_top(to_dp(knob_y - layout.left_knob.radius));
+    state.left_stick_knob->set_width(knob_diameter_dp);
+    state.left_stick_knob->set_height(knob_diameter_dp);
+    state.left_stick_knob->set_border_radius(knob_diameter_dp * 0.5f);
+    state.left_stick_knob->set_background_color((touch_snapshot.stick_x != 0.0f || touch_snapshot.stick_y != 0.0f) ? recompui::theme::color::PrimaryA50 : recompui::theme::color::PrimaryA30);
+
+    apply_circle_visual(state.button_a, layout.button_a, layout.button_font_size_dp, touch_snapshot.buttons[static_cast<size_t>(recompinput::GameInput::A)], recompui::theme::color::SuccessA50);
+    apply_circle_visual(state.button_b, layout.button_b, layout.button_font_size_dp, touch_snapshot.buttons[static_cast<size_t>(recompinput::GameInput::B)], recompui::theme::color::WarningA50);
+    apply_circle_visual(state.button_z, layout.button_z, layout.button_font_size_dp, touch_snapshot.buttons[static_cast<size_t>(recompinput::GameInput::Z)], recompui::theme::color::PrimaryA50);
+    apply_circle_visual(state.button_r, layout.button_r, layout.button_font_size_dp, touch_snapshot.buttons[static_cast<size_t>(recompinput::GameInput::R)], recompui::theme::color::SecondaryA50);
+    apply_circle_visual(state.button_start, layout.button_start, std::max(layout.small_button_font_size_dp, 16.0f), touch_snapshot.buttons[static_cast<size_t>(recompinput::GameInput::START)], recompui::theme::color::PrimaryA50);
+    apply_circle_visual(state.c_up, layout.c_up, layout.small_button_font_size_dp, touch_snapshot.buttons[static_cast<size_t>(recompinput::GameInput::C_UP)], recompui::theme::color::PrimaryA50);
+    apply_circle_visual(state.c_down, layout.c_down, layout.small_button_font_size_dp, touch_snapshot.buttons[static_cast<size_t>(recompinput::GameInput::C_DOWN)], recompui::theme::color::PrimaryA50);
+    apply_circle_visual(state.c_left, layout.c_left, layout.small_button_font_size_dp, touch_snapshot.buttons[static_cast<size_t>(recompinput::GameInput::C_LEFT)], recompui::theme::color::PrimaryA50);
+    apply_circle_visual(state.c_right, layout.c_right, layout.small_button_font_size_dp, touch_snapshot.buttons[static_cast<size_t>(recompinput::GameInput::C_RIGHT)], recompui::theme::color::PrimaryA50);
+    apply_rect_visual(state.config, layout.config, 16.0f, pending_open_config);
 
     state.context.close();
 
     bool open_config = false;
+    bool clear_touch_input = false;
     {
         std::lock_guard lock{ state.mutex };
         if (state.pending_open_config) {
             state.pending_open_config = false;
             clear_active_touches_locked();
             open_config = true;
+            clear_touch_input = true;
         }
+    }
+
+    if (clear_touch_input) {
+        recompinput::set_touch_input_state(TouchInputSnapshot{}.buttons, 0.0f, 0.0f);
     }
 
     if (open_config) {
