@@ -159,6 +159,14 @@ android {
     }
 }
 
+android.applicationVariants.configureEach { variant ->
+    variant.outputs.all {
+        def version = variant.versionName ?: android.defaultConfig.versionName
+        def buildLabel = (variant.buildType.name == "release") ? "release-unsigned" : variant.buildType.name
+        outputFileName = "BanjoRecomp-android-v${version}-${buildLabel}.apk"
+    }
+}
+
 tasks.register("prepareSdl2Source") {
     outputs.dir(downloadedSdl2Dir)
 

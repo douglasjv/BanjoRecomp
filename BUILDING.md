@@ -8,10 +8,15 @@ These steps cover: decompressing the ROM, running the recompiler and finally bui
 This project makes use of submodules so you will need to clone the repository with the `--recurse-submodules` flag.
 
 ```bash
-git clone --recurse-submodules
+git clone --branch android-port --recurse-submodules https://github.com/douglasjv/BanjoRecomp.git
+cd BanjoRecomp
+
 # if you forgot to clone with --recurse-submodules
-# cd /path/to/cloned/repo && git submodule update --init --recursive
+# git submodule sync --recursive
+# git submodule update --init --recursive
 ```
+
+The published Android fork pins the matching submodule commits in `.gitmodules`, so a recursive clone of the `android-port` branch is enough to get the correct BanjoRecomp, RecompFrontend, N64ModernRuntime, and RT64 revisions for building.
 
 ## 2. Install Dependencies
 
@@ -109,7 +114,7 @@ gradle -p android :app:assembleDebug
 The resulting APK will be at:
 
 ```text
-android/app/build/outputs/apk/debug/app-debug.apk
+android/app/build/outputs/apk/debug/BanjoRecomp-android-v1.0.1-debug.apk
 ```
 
 The Android build packages the runtime assets and controller database automatically, but it does not bundle the game ROM. On first launch, use the launcher to pick your own supported ROM through Android's document picker. Mods and texture packs can be imported from the Mods menu through the same picker. During gameplay the Android build also enables an on-screen touch overlay with movement, face buttons, C-buttons, Start, and a Menu shortcut for opening the recomp configuration UI; paired controllers continue to work alongside it.

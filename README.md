@@ -128,7 +128,7 @@ No. Care has been taken to ensure that notes are not saved during demos.
 * Overlays such as MSI Afterburner and other software such as Wallpaper Engine can cause performance issues with this project that prevent the game from rendering correctly. Disabling such software is recommended.
 
 ## Building
-Building is not required to play this project, as prebuilt binaries (which do not contain game assets) can be found in the [Releases](https://github.com/BanjoRecomp/BanjoRecomp/releases) section. Instructions on how to build this project can be found in the [BUILDING.md](BUILDING.md) file. An experimental Android developer-build scaffold is also available under `android/`, with Gradle-based APK packaging around the root CMake build.
+Building is not required to play this project, as prebuilt binaries (which do not contain game assets) can be found in the [Releases](https://github.com/BanjoRecomp/BanjoRecomp/releases) section. Instructions on how to build this project can be found in the [BUILDING.md](BUILDING.md) file. For the published Android fork, clone the `android-port` branch recursively so Git also pulls the pinned submodules: `git clone --branch android-port --recurse-submodules https://github.com/douglasjv/BanjoRecomp.git`. An experimental Android developer-build scaffold is also available under `android/`, with Gradle-based APK packaging around the root CMake build.
 
 ## Libraries Used and Projects Referenced
 * [N64Recomp](https://github.com/N64Recomp/N64Recomp) for statically recompiling the game's code to run natively
