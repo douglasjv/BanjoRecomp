@@ -112,7 +112,7 @@ The resulting APK will be at:
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The Android build packages the runtime assets and controller database automatically. On first launch, use the launcher to pick the supported ROM through Android's document picker. Mods and texture packs can be imported from the Mods menu through the same picker. During gameplay the Android build also enables an on-screen touch overlay with movement, face buttons, C-buttons, Start, and a Menu shortcut for opening the recomp configuration UI; paired controllers continue to work alongside it.
+The Android build packages the runtime assets and controller database automatically, but it does not bundle the game ROM. On first launch, use the launcher to pick your own supported ROM through Android's document picker. Mods and texture packs can be imported from the Mods menu through the same picker. During gameplay the Android build also enables an on-screen touch overlay with movement, face buttons, C-buttons, Start, and a Menu shortcut for opening the recomp configuration UI; paired controllers continue to work alongside it.
 
 If you need to sideload files manually instead, the Android build prefers the app-specific external files directory when available, which is typically under:
 
@@ -120,7 +120,7 @@ If you need to sideload files manually instead, the Android build prefers the ap
 Android/data/io.github.banjorecomp.android/files/
 ```
 
-Mods and texture packs should be copied into that directory's `mods/` subfolder, and the ROM should be stored as `bk.n64.us.1.0.z64`.
+Mods and texture packs should be copied into that directory's `mods/` subfolder, and the ROM should be stored as `bk.n64.us.1.0.z64`. Once the ROM has been imported there successfully, normal APK updates should not require selecting it again unless the app data is removed.
 
 ## 6. Success
 

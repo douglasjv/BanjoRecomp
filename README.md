@@ -39,7 +39,7 @@ A GPU supporting Direct3D 12.0 (Shader Model 6), Vulkan 1.2, or Metal Argument B
 
 On x86-64 PCs, a CPU supporting the SSE4.1 instruction set is also required (Intel Core 2 Penryn series or AMD Bulldozer and newer). ARM64 builds will work on any ARM64 CPU.
 
-Experimental Android developer builds target arm64-v8a devices with Vulkan support and a landscape-first layout, including Android document-picker based ROM/mod import plus an on-screen touch overlay that coexists with external controllers.
+Experimental Android developer builds target arm64-v8a devices with Vulkan support and a landscape-first layout, including Android document-picker based ROM/mod import plus an on-screen touch overlay that coexists with external controllers. The APK does not include the game ROM, so each user still needs to provide their own supported copy on first launch.
 
 If you have issues with crashes on startup, make sure your graphics drivers are fully up to date. 
 
@@ -110,6 +110,8 @@ Unlike N64 ports in the past, this project is not based on the source code provi
 
 #### How do I choose a different ROM?
 **You don't.** This project is **only** a port of Banjo-Kazooie, and it will only accept one specific ROM: the US 1.0 version of the N64 release of Banjo-Kazooie. ROMs in formats other than .z64 will be automatically converted, as long as it is the correct ROM. **This is not an emulator, and it cannot run any arbitrary ROM.**
+
+On Android, the imported ROM is stored in the app's files directory after the first successful import, so updating the APK later won't normally prompt you to pick it again.
 
 Instead, you can change the game by installing mods. See the [mod support](#mod-support) section for details.
 
