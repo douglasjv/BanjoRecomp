@@ -32,6 +32,12 @@ def writeLocalProperties = {
     }
 }
 
+def releaseStoreFilePath = findProperty("banjoReleaseStoreFile") ?: System.getenv("BANJO_ANDROID_RELEASE_STORE_FILE") ?: localProperties.getProperty("banjo.release.storeFile")
+def releaseStorePassword = findProperty("banjoReleaseStorePassword") ?: System.getenv("BANJO_ANDROID_RELEASE_STORE_PASSWORD") ?: localProperties.getProperty("banjo.release.storePassword")
+def releaseKeyAlias = findProperty("banjoReleaseKeyAlias") ?: System.getenv("BANJO_ANDROID_RELEASE_KEY_ALIAS") ?: localProperties.getProperty("banjo.release.keyAlias")
+def releaseKeyPassword = findProperty("banjoReleaseKeyPassword") ?: System.getenv("BANJO_ANDROID_RELEASE_KEY_PASSWORD") ?: localProperties.getProperty("banjo.release.keyPassword")
+def hasReleaseSigning = releaseStoreFilePath && new File(releaseStoreFilePath).isFile() && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
 def sdl2Version = System.getenv("SDL2_VERSION") ?: "2.30.3"
 def sdl2DirPath = findProperty("banjoAndroidSdl2Dir") ?: System.getenv("BANJO_ANDROID_SDL_SOURCE_DIR")
 def sdl2ArchivePath = findProperty("banjoAndroidSdl2Archive") ?: System.getenv("BANJO_ANDROID_SDL_ARCHIVE")
@@ -115,6 +121,17 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseStoreFilePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             debuggable true
@@ -122,6 +139,9 @@ android {
         }
         release {
             minifyEnabled false
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
@@ -162,7 +182,7 @@ android {
 android.applicationVariants.configureEach { variant ->
     variant.outputs.all {
         def version = variant.versionName ?: android.defaultConfig.versionName
-        def buildLabel = (variant.buildType.name == "release") ? "release-unsigned" : variant.buildType.name
+        def buildLabel = (variant.buildType.name == "release" && !hasReleaseSigning) ? "release-unsigned" : variant.buildType.name
         outputFileName = "BanjoRecomp-android-v${version}-${buildLabel}.apk"
     }
 }

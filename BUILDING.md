@@ -117,6 +117,29 @@ The resulting APK will be at:
 android/app/build/outputs/apk/debug/BanjoRecomp-android-v1.0.1-debug.apk
 ```
 
+4. To build a properly signed release APK, configure a release keystore in `android/local.properties` (do not commit these values) or provide the equivalent environment variables:
+
+```properties
+banjo.release.storeFile=/absolute/path/to/your-release.keystore
+banjo.release.storePassword=your-store-password
+banjo.release.keyAlias=your-key-alias
+banjo.release.keyPassword=your-key-password
+```
+
+Then build the release variant:
+
+```bash
+gradle -p android :app:assembleRelease
+```
+
+With release signing configured, the signed APK will be written to:
+
+```text
+android/app/build/outputs/apk/release/BanjoRecomp-android-v1.0.1-release.apk
+```
+
+Without a release keystore, the Android release build still succeeds but produces an unsigned artifact named `BanjoRecomp-android-v1.0.1-release-unsigned.apk`.
+
 The Android build packages the runtime assets and controller database automatically, but it does not bundle the game ROM. On first launch, use the launcher to pick your own supported ROM through Android's document picker. Mods and texture packs can be imported from the Mods menu through the same picker. During gameplay the Android build also enables an on-screen touch overlay with movement, face buttons, C-buttons, Start, and a Menu shortcut for opening the recomp configuration UI; paired controllers continue to work alongside it.
 
 If you need to sideload files manually instead, the Android build prefers the app-specific external files directory when available, which is typically under:
