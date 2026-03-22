@@ -1,3 +1,5 @@
+Note: This is a forked port to Android made using GitHub Copilot. I take no credit for any of the recompile work; Banjo Kazooie is one of my all-time favorite games and I use GitHub Copilot regularly for work so wanted to see if it was possible.
+
 # Banjo: Recompiled
 Banjo: Recompiled is a project that uses [N64: Recompiled](https://github.com/N64Recomp/N64Recomp) to **statically recompile** Banjo-Kazooie into a native port with many new features, enhancements, and extensive mod support. This project uses [RT64](https://github.com/rt64/rt64) as the rendering engine to provide graphical enhancements.
 
