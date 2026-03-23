@@ -114,7 +114,7 @@ gradle -p android :app:assembleDebug
 The resulting APK will be at:
 
 ```text
-android/app/build/outputs/apk/debug/BanjoRecomp-android-v1.0.2-debug.apk
+android/app/build/outputs/apk/debug/BanjoRecomp-android-v1.0.3-debug.apk
 ```
 
 4. To build a properly signed release APK, configure a release keystore in `android/local.properties` (do not commit these values) or provide the equivalent environment variables:
@@ -135,10 +135,10 @@ gradle -p android :app:assembleRelease
 With release signing configured, the signed APK will be written to:
 
 ```text
-android/app/build/outputs/apk/release/BanjoRecomp-android-v1.0.2-release.apk
+android/app/build/outputs/apk/release/BanjoRecomp-android-v1.0.3-release.apk
 ```
 
-Without a release keystore, the Android release build still succeeds but produces an unsigned artifact named `BanjoRecomp-android-v1.0.2-release-unsigned.apk`.
+Without a release keystore, the Android release build still succeeds but produces an unsigned artifact named `BanjoRecomp-android-v1.0.3-release-unsigned.apk`.
 
 The Android build packages the runtime assets and controller database automatically, but it does not bundle the game ROM. On first launch, use the launcher to pick your own supported ROM through Android's document picker. Mods and texture packs can be imported from the Mods menu through the same picker. During gameplay the Android build also enables an on-screen touch overlay with movement, face buttons, C-buttons, Start, and a Menu shortcut for opening the recomp configuration UI; paired controllers continue to work alongside it.
 
@@ -149,6 +149,8 @@ Android/data/io.github.banjorecomp.android/files/
 ```
 
 Mods and texture packs should be copied into that directory's `mods/` subfolder, and the ROM should be stored as `bk.n64.us.1.0.z64`. Once the ROM has been imported there successfully, normal APK updates should not require selecting it again unless the app data is removed.
+
+If you ever have to do a full uninstall/reinstall and restore files with `adb`, only copy back the user data you actually need (for example the ROM, `saves/`, `mods/`, `mod_config/`, and any config JSON files you want to keep). Do not restore the `runtime/` directory or stale `*.bak` / `*.temp` files; let the app regenerate those on first launch so you don't end up with `shell`-owned files that can block later save or config writes.
 
 ## 6. Success
 
